@@ -1,0 +1,6 @@
+{
+  "name": "Simulasi Baterai Habis",
+  "description": "Aplikasi parental control cerdas yang mensimulasikan layar baterai habis / mati palsu untuk membatasi bermain HP anak tanpa menangis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

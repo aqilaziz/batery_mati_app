@@ -1,0 +1,33 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Main battery outline: Centered -->
+    <path
+        android:strokeColor="#FFC107"
+        android:strokeWidth="4"
+        android:fillColor="#00000000"
+        android:pathData="M 24 40 L 72 40 C 74 40, 74 40, 74 42 L 74 66 C 74 68, 74 68, 72 68 L 24 68 C 22 68, 22 68, 22 66 L 22 42 C 22 40, 22 40, 24 40 Z" />
+        
+    <!-- Battery positive terminal cap -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M 74 48 L 79 48 C 80 48, 80 48, 80 50 L 80 58 C 80 60, 80 60, 79 60 L 74 60 Z" />
+        
+    <!-- Red empty charge bar indicator representing low capacity warning -->
+    <path
+        android:fillColor="#FF5252"
+        android:pathData="M 27 44 L 35 44 L 35 64 L 27 64 Z" />
+
+    <!-- Rounded Parental Lock Badge symbol centered in the battery container -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 45 52 L 57 52 L 57 63 L 45 63 Z" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M 48 52 L 48 48 C 48 45, 54 45, 54 48 L 54 52" />
+</vector>
