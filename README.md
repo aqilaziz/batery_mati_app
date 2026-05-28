@@ -129,3 +129,11 @@ Digunakan agar timer tetap berjalan stabil di latar belakang (*foreground servic
 * Target Android: API 36
 * Format rilis: APK
 * Nama APK rilis mengikuti format versi, contoh: `simulasi-baterai-habis-v1.apk`, `simulasi-baterai-habis-v2.apk`, dan seterusnya.
+
+---
+
+# 📄 Lisensi
+
+Project ini dirilis sebagai perangkat lunak open source dengan lisensi **MIT License**.
+
+Lihat file [`LICENSE`](LICENSE) untuk detail lisensi.
