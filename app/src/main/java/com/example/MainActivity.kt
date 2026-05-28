@@ -3,7 +3,6 @@ package com.example
 import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -18,6 +17,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -44,6 +45,7 @@ import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
+    private var isDashboardUnlocked by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,11 +56,144 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     containerColor = Color(0xFF121212) // Eye-safe pitch dark
                 ) { innerPadding ->
-                    ParentControlDashboard(
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                    if (isDashboardUnlocked) {
+                        ParentControlDashboard(
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    } else {
+                        ParentPinGate(
+                            modifier = Modifier.padding(innerPadding),
+                            onUnlock = { isDashboardUnlocked = true }
+                        )
+                    }
                 }
             }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        isDashboardUnlocked = false
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ParentPinGate(
+    modifier: Modifier = Modifier,
+    onUnlock: () -> Unit
+) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences(TimerService.PREFS_NAME, Context.MODE_PRIVATE) }
+    var pinInput by remember { mutableStateOf("") }
+    var showPin by remember { mutableStateOf(false) }
+    var hasError by remember { mutableStateOf(false) }
+
+    fun unlockIfValid() {
+        val currentPin = prefs.getString(TimerService.KEY_PIN, "1234") ?: "1234"
+        if (pinInput == currentPin) {
+            pinInput = ""
+            showPin = false
+            hasError = false
+            onUnlock()
+        } else {
+            pinInput = ""
+            hasError = true
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color(0xFF121212))
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Lock,
+            contentDescription = null,
+            tint = Color(0xFFFF9800),
+            modifier = Modifier.size(54.dp)
+        )
+        Spacer(modifier = Modifier.height(18.dp))
+        Text(
+            text = "Masukkan PIN Orang Tua",
+            color = Color.White,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Dashboard aplikasi dikunci agar tidak bisa dilihat atau diubah anak.",
+            color = Color.Gray,
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center,
+            lineHeight = 18.sp
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        OutlinedTextField(
+            value = pinInput,
+            onValueChange = { input ->
+                if (input.all { it.isDigit() } && input.length <= 4) {
+                    pinInput = input
+                    hasError = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("PIN") },
+            singleLine = true,
+            isError = hasError,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.NumberPassword,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    if (pinInput.length == 4) {
+                        unlockIfValid()
+                    }
+                }
+            ),
+            visualTransformation = if (showPin) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { showPin = !showPin }) {
+                    Icon(
+                        imageVector = if (showPin) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (showPin) "Sembunyikan PIN" else "Tampilkan PIN",
+                        tint = Color.LightGray
+                    )
+                }
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                focusedBorderColor = Color(0xFFFF9800),
+                unfocusedBorderColor = Color(0xFF555555),
+                errorBorderColor = Color.Red
+            ),
+            shape = RoundedCornerShape(8.dp)
+        )
+        if (hasError) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "PIN salah.",
+                color = Color.Red,
+                fontSize = 12.sp
+            )
+        }
+        Spacer(modifier = Modifier.height(18.dp))
+        Button(
+            onClick = { unlockIfValid() },
+            enabled = pinInput.length == 4,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800)),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Icon(Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Buka Dashboard")
         }
     }
 }
