@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.util.AttributeSet
@@ -25,6 +26,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.GridLayout
@@ -61,6 +63,8 @@ class TimerService : Service() {
     private var overlayView: FrameLayout? = null
     private var handler: Handler? = null
     private var countdownRunnable: Runnable? = null
+    private var immersiveGuardRunnable: Runnable? = null
+    private var screenWakeLock: PowerManager.WakeLock? = null
     
     private var timeLeftSeconds = 0L
     private var targetTimestamp = 0L
@@ -202,6 +206,7 @@ class TimerService : Service() {
     private fun showOverlayBlocker() {
         if (isSimulationShowing) return
         isSimulationShowing = true
+        acquireScreenWakeLock()
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val selectedMode = prefs.getInt(KEY_MODE, 0) // 0: standard battery screen, 1: instant pitch black, 2: glitch pattern
@@ -210,7 +215,10 @@ class TimerService : Service() {
                 or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
                 or WindowManager.LayoutParams.FLAG_FULLSCREEN
-                or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                or WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                or WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -225,6 +233,8 @@ class TimerService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.CENTER
+            screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_OFF
+            buttonBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_OFF
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
@@ -234,35 +244,21 @@ class TimerService : Service() {
         val rootLayout = object : FrameLayout(this) {
             override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
                 super.onWindowFocusChanged(hasWindowFocus)
+                applyImmersiveSystemUi(this)
                 if (!hasWindowFocus) {
-                    // Force-close expanded status bars/notification panel if drag down occurs
-                    try {
-                        @Suppress("DEPRECATION")
-                        val closeIntent = Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
-                        sendBroadcast(closeIntent)
-                    } catch (e: Exception) {
-                        // Suppress exception
-                    }
+                    closeSystemDialogs()
 
                     // Re-assert complete immersion (full screen, hide navigation / status bars)
                     handler?.postDelayed({
-                        @Suppress("DEPRECATION")
-                        systemUiVisibility = (
-                            View.SYSTEM_UI_FLAG_FULLSCREEN
-                            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                        )
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            windowInsetsController?.let { controller ->
-                                controller.hide(android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars())
-                                controller.systemBarsBehavior = android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                            }
-                        }
+                        applyImmersiveSystemUi(this)
+                        requestFocus()
                     }, 50)
                 }
+            }
+
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                if (isBlockedHardwareKey(event.keyCode)) return true
+                return super.dispatchKeyEvent(event)
             }
         }.apply {
             setBackgroundColor(Color.BLACK)
@@ -271,7 +267,7 @@ class TimerService : Service() {
 
             // Intercept and consume back key press so navigation is blocked
             setOnKeyListener { _, keyCode, event ->
-                if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_HOME) {
+                if (isBlockedHardwareKey(keyCode)) {
                     true
                 } else {
                     false
@@ -279,23 +275,12 @@ class TimerService : Service() {
             }
             
             // Hide status bar and navigation bar completely
-            @Suppress("DEPRECATION")
-            systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            )
+            applyImmersiveSystemUi(this)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                     override fun onViewAttachedToWindow(v: View) {
-                        v.windowInsetsController?.let { controller ->
-                            controller.hide(android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars())
-                            controller.systemBarsBehavior = android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                        }
+                        applyImmersiveSystemUi(v)
                     }
                     override fun onViewDetachedFromWindow(v: View) {}
                 })
@@ -375,6 +360,7 @@ class TimerService : Service() {
         var lastClickTime = 0L
 
         rootLayout.setOnTouchListener { _, event ->
+            applyImmersiveSystemUi(rootLayout)
             if (event.action == MotionEvent.ACTION_DOWN) {
                 val scale = resources.displayMetrics.density
                 val limitX = 200f * scale // approx 200dp
@@ -409,9 +395,107 @@ class TimerService : Service() {
         // Add to WindowManager
         overlayView = rootLayout
         windowManager?.addView(rootLayout, params)
+        rootLayout.requestFocus()
+        rootLayout.post {
+            applyImmersiveSystemUi(rootLayout)
+            rootLayout.requestFocus()
+        }
+        startImmersiveGuard(rootLayout)
+    }
+
+    private fun isBlockedHardwareKey(keyCode: Int): Boolean {
+        return when (keyCode) {
+            KeyEvent.KEYCODE_BACK,
+            KeyEvent.KEYCODE_HOME,
+            KeyEvent.KEYCODE_APP_SWITCH,
+            KeyEvent.KEYCODE_ASSIST,
+            KeyEvent.KEYCODE_MENU,
+            KeyEvent.KEYCODE_SEARCH,
+            KeyEvent.KEYCODE_CAMERA,
+            KeyEvent.KEYCODE_FOCUS,
+            KeyEvent.KEYCODE_POWER,
+            KeyEvent.KEYCODE_SLEEP,
+            KeyEvent.KEYCODE_WAKEUP,
+            KeyEvent.KEYCODE_VOLUME_UP,
+            KeyEvent.KEYCODE_VOLUME_DOWN,
+            KeyEvent.KEYCODE_VOLUME_MUTE,
+            KeyEvent.KEYCODE_MUTE,
+            KeyEvent.KEYCODE_NOTIFICATION,
+            KeyEvent.KEYCODE_BRIGHTNESS_UP,
+            KeyEvent.KEYCODE_BRIGHTNESS_DOWN -> true
+            else -> false
+        }
+    }
+
+    private fun applyImmersiveSystemUi(view: View) {
+        @Suppress("DEPRECATION")
+        view.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            view.windowInsetsController?.let { controller ->
+                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                controller.systemBarsBehavior =
+                    android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        }
+    }
+
+    private fun startImmersiveGuard(view: View) {
+        immersiveGuardRunnable?.let { handler?.removeCallbacks(it) }
+        immersiveGuardRunnable = object : Runnable {
+            override fun run() {
+                if (!isSimulationShowing) return
+                closeSystemDialogs()
+                applyImmersiveSystemUi(view)
+                view.requestFocus()
+                handler?.postDelayed(this, 350)
+            }
+        }
+        handler?.post(immersiveGuardRunnable!!)
+    }
+
+    private fun closeSystemDialogs() {
+        try {
+            @Suppress("DEPRECATION")
+            sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS))
+        } catch (e: Exception) {
+            // Some Android versions ignore or block this for third-party apps.
+        }
+    }
+
+    private fun acquireScreenWakeLock() {
+        if (screenWakeLock?.isHeld == true) return
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        @Suppress("DEPRECATION")
+        screenWakeLock = powerManager.newWakeLock(
+            PowerManager.SCREEN_DIM_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+            "$packageName:FakeShutdownOverlay"
+        ).apply {
+            setReferenceCounted(false)
+            acquire(60 * 60 * 1000L)
+        }
+    }
+
+    private fun releaseScreenWakeLock() {
+        try {
+            if (screenWakeLock?.isHeld == true) {
+                screenWakeLock?.release()
+            }
+        } catch (e: Exception) {
+            // Ignore stale wake lock state.
+        }
+        screenWakeLock = null
     }
 
     private fun showPinInputPad(rootLayout: FrameLayout) {
+        applyImmersiveSystemUi(rootLayout)
         // Remove prior PIN elements if already present
         val existingPinPad = rootLayout.findViewWithTag<View>("pin_pad_tag")
         if (existingPinPad != null) return
@@ -599,6 +683,9 @@ class TimerService : Service() {
         // Stop timer execution
         countdownRunnable?.let { handler?.removeCallbacks(it) }
         countdownRunnable = null
+        immersiveGuardRunnable?.let { handler?.removeCallbacks(it) }
+        immersiveGuardRunnable = null
+        releaseScreenWakeLock()
         
         // Update preference state
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
