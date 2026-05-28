@@ -1,3 +1,5 @@
+![Poster Simulasi Baterai Habis](assets/readme-banner.png)
+
 # 📱 DESKRIPSI APLIKASI — Simulasi Baterai Habis
 
 **Simulasi Baterai Habis** adalah aplikasi *Parental Control* (Kontrol Orang Tua) yang cerdas dan ramah anak untuk membantu membatasi waktu layar (*screen time*) tanpa memicu kemarahan, kesedihan, atau tangisan.
