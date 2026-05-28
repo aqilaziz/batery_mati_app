@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -74,6 +75,8 @@ fun ParentControlDashboard(modifier: Modifier = Modifier) {
     var showStopPinDialog by remember { mutableStateOf(false) }
     var stopPinInput by remember { mutableStateOf("") }
     var stopPinError by remember { mutableStateOf(false) }
+    var showStopPin by remember { mutableStateOf(false) }
+    var showParentPin by remember { mutableStateOf(false) }
     
     // Countdown states
     var isTimerActive by remember { mutableStateOf(prefs.getBoolean(TimerService.KEY_IS_RUNNING, false)) }
@@ -139,6 +142,7 @@ fun ParentControlDashboard(modifier: Modifier = Modifier) {
                 showStopPinDialog = false
                 stopPinInput = ""
                 stopPinError = false
+                showStopPin = false
             },
             title = {
                 Text(
@@ -167,7 +171,16 @@ fun ParentControlDashboard(modifier: Modifier = Modifier) {
                         singleLine = true,
                         isError = stopPinError,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (showStopPin) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showStopPin = !showStopPin }) {
+                                Icon(
+                                    imageVector = if (showStopPin) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = if (showStopPin) "Sembunyikan PIN" else "Tampilkan PIN",
+                                    tint = Color.LightGray
+                                )
+                            }
+                        },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
@@ -199,6 +212,7 @@ fun ParentControlDashboard(modifier: Modifier = Modifier) {
                             showStopPinDialog = false
                             stopPinInput = ""
                             stopPinError = false
+                            showStopPin = false
                         } else {
                             stopPinError = true
                             stopPinInput = ""
@@ -217,6 +231,7 @@ fun ParentControlDashboard(modifier: Modifier = Modifier) {
                         showStopPinDialog = false
                         stopPinInput = ""
                         stopPinError = false
+                        showStopPin = false
                     }
                 ) {
                     Text("Batal")
@@ -651,7 +666,16 @@ fun ParentControlDashboard(modifier: Modifier = Modifier) {
                     label = { Text("4-Digit PIN") },
                     placeholder = { Text("Masukkan 4 digit...") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation = if (showParentPin) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { showParentPin = !showParentPin }) {
+                            Icon(
+                                imageVector = if (showParentPin) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (showParentPin) "Sembunyikan PIN" else "Tampilkan PIN",
+                                tint = if (isTimerActive) Color.Gray else Color.LightGray
+                            )
+                        }
+                    },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White,
