@@ -5,8 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.graphics.Canvas
@@ -65,6 +67,7 @@ class TimerService : Service() {
     private var countdownRunnable: Runnable? = null
     private var immersiveGuardRunnable: Runnable? = null
     private var screenWakeLock: PowerManager.WakeLock? = null
+    private var screenStateReceiver: BroadcastReceiver? = null
     
     private var timeLeftSeconds = 0L
     private var targetTimestamp = 0L
@@ -75,6 +78,7 @@ class TimerService : Service() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         handler = Handler(Looper.getMainLooper())
         createNotificationChannel()
+        registerScreenStateReceiver()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -203,7 +207,7 @@ class TimerService : Service() {
         }
     }
 
-    private fun showOverlayBlocker() {
+    private fun showOverlayBlocker(forceBlackOnly: Boolean = false) {
         if (isSimulationShowing) return
         isSimulationShowing = true
         acquireScreenWakeLock()
@@ -288,7 +292,7 @@ class TimerService : Service() {
         }
 
         // Custom child Views based on simulation mode
-        if (selectedMode == 0) {
+        if (!forceBlackOnly && selectedMode == 0) {
             // Low battery mode
             // Center Layout containing simulated empty battery icon and shutdown loading
             val centerLayout = LinearLayout(this).apply {
@@ -327,7 +331,7 @@ class TimerService : Service() {
                 rootLayout.setBackgroundColor(Color.BLACK)
             }, 6000)
 
-        } else if (selectedMode == 2) {
+        } else if (!forceBlackOnly && selectedMode == 2) {
             // Glitch Screen mode
             val glitchLayout = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -401,6 +405,86 @@ class TimerService : Service() {
             rootLayout.requestFocus()
         }
         startImmersiveGuard(rootLayout)
+    }
+
+    private fun registerScreenStateReceiver() {
+        if (screenStateReceiver != null) return
+        screenStateReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (!isSimulationShowing) return
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> {
+                        handler?.postDelayed({ wakeAndRestoreBlackOverlay() }, 250)
+                    }
+                    Intent.ACTION_SCREEN_ON,
+                    Intent.ACTION_USER_PRESENT -> {
+                        handler?.post { restoreBlackOverlayAfterPower() }
+                        handler?.postDelayed({ restoreBlackOverlayAfterPower() }, 300)
+                        handler?.postDelayed({ restoreBlackOverlayAfterPower() }, 900)
+                    }
+                }
+            }
+        }
+
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(screenStateReceiver, filter)
+        }
+    }
+
+    private fun unregisterScreenStateReceiver() {
+        screenStateReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (e: Exception) {
+                // Receiver may already be unregistered during service teardown.
+            }
+        }
+        screenStateReceiver = null
+    }
+
+    private fun wakeAndRestoreBlackOverlay() {
+        if (!isSimulationShowing) return
+        wakeDeviceBriefly()
+        handler?.postDelayed({ restoreBlackOverlayAfterPower() }, 120)
+    }
+
+    private fun wakeDeviceBriefly() {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        @Suppress("DEPRECATION")
+        val wakeLock = powerManager.newWakeLock(
+            PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
+            "$packageName:PowerButtonBlackOverlay"
+        )
+        wakeLock.setReferenceCounted(false)
+        wakeLock.acquire(3000L)
+    }
+
+    private fun restoreBlackOverlayAfterPower() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_IS_RUNNING, false)) return
+
+        val currentOverlay = overlayView
+        if (currentOverlay == null || !currentOverlay.isAttachedToWindow) {
+            overlayView = null
+            isSimulationShowing = false
+            showOverlayBlocker(forceBlackOnly = true)
+            return
+        }
+
+        currentOverlay.findViewWithTag<View>("pin_pad_tag")?.let { currentOverlay.removeView(it) }
+        currentOverlay.setBackgroundColor(Color.BLACK)
+        closeSystemDialogs()
+        applyImmersiveSystemUi(currentOverlay)
+        currentOverlay.requestFocus()
     }
 
     private fun isBlockedHardwareKey(keyCode: Int): Boolean {
@@ -710,6 +794,7 @@ class TimerService : Service() {
     }
 
     override fun onDestroy() {
+        unregisterScreenStateReceiver()
         stopTimerAndOverlay()
         super.onDestroy()
     }
