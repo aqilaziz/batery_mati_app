@@ -223,14 +223,83 @@ class TimerService : Service() {
             },
             layoutParamsFlags,
             PixelFormat.TRANSLUCENT
-        )
-        params.gravity = Gravity.CENTER
+        ).apply {
+            gravity = Gravity.CENTER
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
 
-        // Create programmatic overlay FrameLayout
-        val rootLayout = FrameLayout(this).apply {
+        // Create programmatic overlay FrameLayout with focus intercept to suppress notification pull-down and system navigation
+        val rootLayout = object : FrameLayout(this) {
+            override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+                super.onWindowFocusChanged(hasWindowFocus)
+                if (!hasWindowFocus) {
+                    // Force-close expanded status bars/notification panel if drag down occurs
+                    try {
+                        @Suppress("DEPRECATION")
+                        val closeIntent = Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
+                        sendBroadcast(closeIntent)
+                    } catch (e: Exception) {
+                        // Suppress exception
+                    }
+
+                    // Re-assert complete immersion (full screen, hide navigation / status bars)
+                    handler?.postDelayed({
+                        @Suppress("DEPRECATION")
+                        systemUiVisibility = (
+                            View.SYSTEM_UI_FLAG_FULLSCREEN
+                            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        )
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            windowInsetsController?.let { controller ->
+                                controller.hide(android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars())
+                                controller.systemBarsBehavior = android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                            }
+                        }
+                    }, 50)
+                }
+            }
+        }.apply {
             setBackgroundColor(Color.BLACK)
             isFocusable = true
             isFocusableInTouchMode = true
+
+            // Intercept and consume back key press so navigation is blocked
+            setOnKeyListener { _, keyCode, event ->
+                if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_HOME) {
+                    true
+                } else {
+                    false
+                }
+            }
+            
+            // Hide status bar and navigation bar completely
+            @Suppress("DEPRECATION")
+            systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            )
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                    override fun onViewAttachedToWindow(v: View) {
+                        v.windowInsetsController?.let { controller ->
+                            controller.hide(android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars())
+                            controller.systemBarsBehavior = android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                        }
+                    }
+                    override fun onViewDetachedFromWindow(v: View) {}
+                })
+            }
         }
 
         // Custom child Views based on simulation mode
