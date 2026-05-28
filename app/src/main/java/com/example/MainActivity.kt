@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,6 +71,9 @@ fun ParentControlDashboard(modifier: Modifier = Modifier) {
     // State bindings
     var pin by remember { mutableStateOf(prefs.getString(TimerService.KEY_PIN, "1234") ?: "1234") }
     var selectedMode by remember { mutableStateOf(prefs.getInt(TimerService.KEY_MODE, 0)) }
+    var showStopPinDialog by remember { mutableStateOf(false) }
+    var stopPinInput by remember { mutableStateOf("") }
+    var stopPinError by remember { mutableStateOf(false) }
     
     // Countdown states
     var isTimerActive by remember { mutableStateOf(prefs.getBoolean(TimerService.KEY_IS_RUNNING, false)) }
@@ -127,6 +131,101 @@ fun ParentControlDashboard(modifier: Modifier = Modifier) {
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         hasNotificationPermission = isGranted
+    }
+
+    if (showStopPinDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showStopPinDialog = false
+                stopPinInput = ""
+                stopPinError = false
+            },
+            title = {
+                Text(
+                    text = "Masukkan PIN Orang Tua",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Timer hanya bisa dihentikan oleh orang tua.",
+                        color = Color.LightGray,
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = stopPinInput,
+                        onValueChange = { input ->
+                            if (input.all { it.isDigit() } && input.length <= 4) {
+                                stopPinInput = input
+                                stopPinError = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("PIN") },
+                        singleLine = true,
+                        isError = stopPinError,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color(0xFFFF9800),
+                            unfocusedBorderColor = Color(0xFF555555),
+                            errorBorderColor = Color.Red
+                        )
+                    )
+                    if (stopPinError) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "PIN salah.",
+                            color = Color.Red,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val currentPin = prefs.getString(TimerService.KEY_PIN, "1234") ?: "1234"
+                        if (stopPinInput == currentPin) {
+                            val intent = Intent(context, TimerService::class.java).apply {
+                                action = TimerService.ACTION_STOP
+                            }
+                            context.startService(intent)
+                            isTimerActive = false
+                            showStopPinDialog = false
+                            stopPinInput = ""
+                            stopPinError = false
+                        } else {
+                            stopPinError = true
+                            stopPinInput = ""
+                        }
+                    },
+                    enabled = stopPinInput.length == 4,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Hentikan")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showStopPinDialog = false
+                        stopPinInput = ""
+                        stopPinError = false
+                    }
+                ) {
+                    Text("Batal")
+                }
+            },
+            containerColor = Color(0xFF1E1E1E),
+            titleContentColor = Color.White,
+            textContentColor = Color.White
+        )
     }
 
     Column(
@@ -209,11 +308,9 @@ fun ParentControlDashboard(modifier: Modifier = Modifier) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
-                            val intent = Intent(context, TimerService::class.java).apply {
-                                action = TimerService.ACTION_STOP
-                            }
-                            context.startService(intent)
-                            isTimerActive = false
+                            showStopPinDialog = true
+                            stopPinInput = ""
+                            stopPinError = false
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
                         shape = RoundedCornerShape(8.dp)
@@ -531,7 +628,11 @@ fun ParentControlDashboard(modifier: Modifier = Modifier) {
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Ingat PIN ini untuk membuka blokir layar HP Anda saat layar menggelap.",
+                    text = if (isTimerActive) {
+                        "PIN tidak bisa diubah saat timer berjalan."
+                    } else {
+                        "Ingat PIN ini untuk membuka blokir layar HP Anda saat layar menggelap dan menghentikan timer aktif."
+                    },
                     color = Color.Gray,
                     fontSize = 11.sp
                 )
@@ -540,20 +641,26 @@ fun ParentControlDashboard(modifier: Modifier = Modifier) {
                 OutlinedTextField(
                     value = pin,
                     onValueChange = { input ->
-                        if (input.all { it.isDigit() } && input.length <= 4) {
+                        if (!isTimerActive && input.all { it.isDigit() } && input.length <= 4) {
                             pin = input
                             prefs.edit().putString(TimerService.KEY_PIN, input).apply()
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !isTimerActive,
                     label = { Text("4-Digit PIN") },
                     placeholder = { Text("Masukkan 4 digit...") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    visualTransformation = PasswordVisualTransformation(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White,
+                        disabledTextColor = Color.Gray,
                         focusedBorderColor = Color(0xFFFF9800),
-                        unfocusedBorderColor = Color(0xFF444444)
+                        unfocusedBorderColor = Color(0xFF444444),
+                        disabledBorderColor = Color(0xFF333333),
+                        disabledLabelColor = Color.Gray,
+                        disabledPlaceholderColor = Color.DarkGray
                     ),
                     shape = RoundedCornerShape(8.dp)
                 )
