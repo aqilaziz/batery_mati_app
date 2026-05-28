@@ -2,4 +2,13 @@
 <resources>
 
     <style name="Theme.MyApplication" parent="android:Theme.DeviceDefault.NoActionBar" />
+    <style name="Theme.BlackOverlay" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:colorAccent">@android:color/black</item>
+    </style>
 </resources>

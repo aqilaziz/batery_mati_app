@@ -37,6 +37,15 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".BlackOverlayActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:theme="@style/Theme.BlackOverlay"
+            android:turnScreenOn="true" />
+
         <service
             android:name=".TimerService"
             android:enabled="true"

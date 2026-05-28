@@ -414,11 +414,15 @@ class TimerService : Service() {
                 if (!isSimulationShowing) return
                 when (intent?.action) {
                     Intent.ACTION_SCREEN_OFF -> {
-                        handler?.postDelayed({ wakeAndRestoreBlackOverlay() }, 250)
+                        wakeAndRestoreBlackOverlay()
+                        handler?.postDelayed({ wakeAndRestoreBlackOverlay() }, 40)
+                        handler?.postDelayed({ wakeAndRestoreBlackOverlay() }, 140)
                     }
                     Intent.ACTION_SCREEN_ON,
                     Intent.ACTION_USER_PRESENT -> {
+                        launchBlackOverlayActivity()
                         handler?.post { restoreBlackOverlayAfterPower() }
+                        handler?.postDelayed({ restoreBlackOverlayAfterPower() }, 80)
                         handler?.postDelayed({ restoreBlackOverlayAfterPower() }, 300)
                         handler?.postDelayed({ restoreBlackOverlayAfterPower() }, 900)
                     }
@@ -454,6 +458,9 @@ class TimerService : Service() {
     private fun wakeAndRestoreBlackOverlay() {
         if (!isSimulationShowing) return
         wakeDeviceBriefly()
+        launchBlackOverlayActivity()
+        restoreBlackOverlayAfterPower()
+        handler?.postDelayed({ restoreBlackOverlayAfterPower() }, 40)
         handler?.postDelayed({ restoreBlackOverlayAfterPower() }, 120)
     }
 
@@ -466,6 +473,23 @@ class TimerService : Service() {
         )
         wakeLock.setReferenceCounted(false)
         wakeLock.acquire(3000L)
+    }
+
+    private fun launchBlackOverlayActivity() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_IS_RUNNING, false)) return
+
+        try {
+            val intent = Intent(this, BlackOverlayActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            // Some Android versions restrict background activity launches.
+        }
     }
 
     private fun restoreBlackOverlayAfterPower() {
