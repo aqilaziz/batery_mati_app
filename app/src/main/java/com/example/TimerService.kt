@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -48,6 +49,8 @@ class TimerService : Service() {
         // Actions
         const val ACTION_START = "com.example.action.START_TIMER"
         const val ACTION_STOP = "com.example.action.STOP_TIMER"
+        const val ACTION_TIMER_FINISHED = "com.example.action.TIMER_FINISHED"
+        const val ACTION_TIMER_STARTED = "com.example.action.TIMER_STARTED"
         
         // Extras
         const val EXTRA_DURATION_SECONDS = "extra_duration_seconds"
@@ -100,6 +103,10 @@ class TimerService : Service() {
 
             startForegroundServiceWithNotification()
             startTimerCountdown()
+            
+            // Notify MainActivity that timer started
+            val startIntent = Intent(ACTION_TIMER_STARTED)
+            LocalBroadcastManager.getInstance(this).sendBroadcast(startIntent)
         } else if (action == ACTION_STOP) {
             stopTimerAndOverlay()
         }
@@ -205,6 +212,10 @@ class TimerService : Service() {
         handler?.post {
             showOverlayBlocker()
         }
+        
+        // Notify MainActivity that timer finished - so UI refreshes automatically
+        val finishIntent = Intent(ACTION_TIMER_FINISHED)
+        LocalBroadcastManager.getInstance(this).sendBroadcast(finishIntent)
     }
 
     private fun showOverlayBlocker(forceBlackOnly: Boolean = false) {

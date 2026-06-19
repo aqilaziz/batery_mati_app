@@ -1,8 +1,10 @@
 package com.example
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -41,15 +43,31 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private var isDashboardUnlocked by mutableStateOf(false)
+    private var refreshTrigger by mutableStateOf(0)
+    
+    private val timerFinishedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == TimerService.ACTION_TIMER_FINISHED) {
+                // Trigger UI refresh
+                refreshTrigger++
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        // Register broadcast receiver for timer completion
+        val intentFilter = IntentFilter(TimerService.ACTION_TIMER_FINISHED)
+        LocalBroadcastManager.getInstance(this).registerReceiver(timerFinishedReceiver, intentFilter)
+        
         setContent {
             MyApplicationTheme {
                 Scaffold(
@@ -58,7 +76,8 @@ class MainActivity : ComponentActivity() {
                 ) { innerPadding ->
                     if (isDashboardUnlocked) {
                         ParentControlDashboard(
-                            modifier = Modifier.padding(innerPadding)
+                            modifier = Modifier.padding(innerPadding),
+                            refreshTrigger = refreshTrigger
                         )
                     } else {
                         ParentPinGate(
@@ -69,6 +88,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(timerFinishedReceiver)
     }
 
     override fun onStop() {
@@ -200,7 +224,7 @@ fun ParentPinGate(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ParentControlDashboard(modifier: Modifier = Modifier) {
+fun ParentControlDashboard(modifier: Modifier = Modifier, refreshTrigger: Int = 0) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(TimerService.PREFS_NAME, Context.MODE_PRIVATE) }
 
@@ -216,6 +240,14 @@ fun ParentControlDashboard(modifier: Modifier = Modifier) {
     // Countdown states
     var isTimerActive by remember { mutableStateOf(prefs.getBoolean(TimerService.KEY_IS_RUNNING, false)) }
     var secondsRemaining by remember { mutableStateOf(prefs.getLong(TimerService.KEY_TIME_LEFT, 0L)) }
+    
+    // Listen to refresh trigger from broadcast
+    LaunchedEffect(refreshTrigger) {
+        if (refreshTrigger > 0) {
+            isTimerActive = prefs.getBoolean(TimerService.KEY_IS_RUNNING, false)
+            secondsRemaining = prefs.getLong(TimerService.KEY_TIME_LEFT, 0L)
+        }
+    }
     
     // Custom duration states
     var selectedMinutesStr by remember { mutableStateOf("15") }
