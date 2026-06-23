@@ -117,10 +117,12 @@ class TimerService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Lovera Timer"
-            val descriptionText = "Menampilkan sisa waktu sebelum simulasi berjalan"
-            val importance = NotificationManager.IMPORTANCE_LOW
+            val descriptionText = "Menampilkan sisa waktu sebelum simulasi berjalan. Notifikasi ini menggunakan prioritas tinggi agar layar mati bisa muncul otomatis tanpa harus ditab."
+            val importance = NotificationManager.IMPORTANCE_HIGH
             val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
                 description = descriptionText
+                // Allow heads-up display for the shutdown full-screen intent
+                setBypassDnd(true)
             }
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
@@ -159,6 +161,33 @@ class TimerService : Service() {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .build()
+    }
+
+    /**
+     * Creates a high-priority full-screen notification that forces the BlackOverlayActivity
+     * to appear immediately when the timer expires. This is the key fix: on modern Android
+     * (especially Chinese OEMs), FullScreenIntent bypasses background overlay restrictions.
+     */
+    private fun createShutdownNotification(): Notification {
+        val blackOverlayIntent = Intent(this, BlackOverlayActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            this,
+            1,
+            blackOverlayIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Baterai Lemah!")
+            .setContentText("Mematikan daya...")
+            .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
+            .setFullScreenIntent(fullScreenPendingIntent, true) // true = show immediately
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setOngoing(true)
             .build()
     }
 
@@ -208,7 +237,18 @@ class TimerService : Service() {
             vibrator.vibrate(800)
         }
 
-        // Show Full Screen Overlay Blocker
+        // STEP 1: Update notification with FullScreenIntent — this forces the black overlay
+        // to appear even on Chinese OEM ROMs that block background overlays.
+        val shutdownNotification = createShutdownNotification()
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, shutdownNotification)
+
+        // STEP 2: Launch BlackOverlayActivity directly — Activity has higher display priority
+        // than WindowManager overlay, especially on Android 10+.
+        launchBlackOverlayActivity()
+
+        // STEP 3: Show the WindowManager overlay as redundant backup
+        // (covers cases where Activity launch might be blocked)
         handler?.post {
             showOverlayBlocker()
         }
@@ -496,10 +536,13 @@ class TimerService : Service() {
                 addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                addFlags(Intent.FLAG_ACTIVITY_NO_USER_ACTION)
             }
             startActivity(intent)
         } catch (e: Exception) {
             // Some Android versions restrict background activity launches.
+            // In that case the FullScreenIntent notification handles it.
         }
     }
 
