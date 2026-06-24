@@ -44,6 +44,7 @@ class TimerService : Service() {
 
     companion object {
         const val CHANNEL_ID = "timer_service_channel"
+        const val CHANNEL_SHUTDOWN_ID = "timer_shutdown_channel"
         const val NOTIFICATION_ID = 4224
         
         // Actions
@@ -116,19 +117,36 @@ class TimerService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "Lovera Timer"
-            val descriptionText = "Menampilkan sisa waktu sebelum simulasi berjalan. Notifikasi ini menggunakan prioritas tinggi agar layar mati bisa muncul otomatis tanpa harus ditab."
-            val importance = NotificationManager.IMPORTANCE_HIGH
-            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
-                description = descriptionText
-                // Allow heads-up display for the shutdown full-screen intent
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            // Channel 1: Countdown timer — LOW importance, no vibration, no heads-up popup
+            // This prevents the "floating text" and "continuous vibration" problems
+            // during the countdown phase.
+            val countdownChannel = NotificationChannel(
+                CHANNEL_ID,
+                "Timer Hitung Mundur",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Notifikasi senyap untuk hitung mundur waktu bermain anak"
+                enableVibration(false)
+                setShowBadge(false)
+            }
+            notificationManager.createNotificationChannel(countdownChannel)
+
+            // Channel 2: Shutdown alert — HIGH importance for FullScreenIntent
+            // This channel is ONLY used when the timer actually expires.
+            val shutdownChannel = NotificationChannel(
+                CHANNEL_SHUTDOWN_ID,
+                "Peringatan Baterai Habis",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notifikasi darurat saat waktu bermain habis — memunculkan layar mati otomatis"
                 setBypassDnd(true)
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 500, 200, 500)
-                setSound(null, null) // No sound to avoid alarming the child prematurely
+                setSound(null, null)
             }
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            notificationManager.createNotificationChannel(shutdownChannel)
         }
     }
 
@@ -183,7 +201,7 @@ class TimerService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        return NotificationCompat.Builder(this, CHANNEL_SHUTDOWN_ID)
             .setContentTitle("⚠️ Baterai Kritis!")
             .setContentText("HP akan mati dalam beberapa detik...")
             .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
@@ -192,8 +210,6 @@ class TimerService : Service() {
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setOngoing(true)
             .setAutoCancel(false)
-            // Force heads-up display with sound + vibration
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }

@@ -6,8 +6,8 @@ plugins {
   alias(libs.plugins.secrets)
 }
 
-val appVersionCode = 8
-val appVersionName = "1.7"
+val appVersionCode = 9
+val appVersionName = "1.8"
 
 android {
   namespace = "com.example"
