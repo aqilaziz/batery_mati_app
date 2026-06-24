@@ -123,6 +123,9 @@ class TimerService : Service() {
                 description = descriptionText
                 // Allow heads-up display for the shutdown full-screen intent
                 setBypassDnd(true)
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500)
+                setSound(null, null) // No sound to avoid alarming the child prematurely
             }
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
@@ -181,13 +184,17 @@ class TimerService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Baterai Lemah!")
-            .setContentText("Mematikan daya...")
+            .setContentTitle("⚠️ Baterai Kritis!")
+            .setContentText("HP akan mati dalam beberapa detik...")
             .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
             .setFullScreenIntent(fullScreenPendingIntent, true) // true = show immediately
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setOngoing(true)
+            .setAutoCancel(false)
+            // Force heads-up display with sound + vibration
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
 
@@ -228,6 +235,10 @@ class TimerService : Service() {
     }
 
     private fun triggerFakeShutdown() {
+        // STEP 0: Acquire FULL_WAKE_LOCK to force screen on immediately.
+        // Without this, overlay may not be visible if screen is off/locked.
+        wakeDeviceBriefly()
+
         // Vibrate to simulate standard phone turning off vibration
         val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -237,21 +248,27 @@ class TimerService : Service() {
             vibrator.vibrate(800)
         }
 
-        // STEP 1: Update notification with FullScreenIntent — this forces the black overlay
-        // to appear even on Chinese OEM ROMs that block background overlays.
+        // STEP 1 (CRITICAL): Show WindowManager overlay FIRST from foreground service context.
+        // On Android 10+, a foreground service with SYSTEM_ALERT_WINDOW permission can add
+        // TYPE_APPLICATION_OVERLAY directly — this bypasses Chinese OEM background overlay blocks
+        // (Xiaomi MIUI, Oppo ColorOS, Vivo FuntouchOS, Samsung OneUI).
+        // The overlay MUST be shown BEFORE the notification, because the notification on these
+        // OEMs appears as a heads-up banner requiring user tap (which a child can ignore).
+        showOverlayBlocker()
+
+        // STEP 2: Post heads-up notification as redundant backup.
+        // On devices where overlay is somehow blocked, the notification + FullScreenIntent
+        // serves as a fallback trigger for BlackOverlayActivity.
         val shutdownNotification = createShutdownNotification()
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(NOTIFICATION_ID, shutdownNotification)
 
-        // STEP 2: Launch BlackOverlayActivity directly — Activity has higher display priority
-        // than WindowManager overlay, especially on Android 10+.
-        launchBlackOverlayActivity()
-
-        // STEP 3: Show the WindowManager overlay as redundant backup
-        // (covers cases where Activity launch might be blocked)
-        handler?.post {
-            showOverlayBlocker()
-        }
+        // STEP 3: Launch BlackOverlayActivity as tertiary backup.
+        // Activity has higher display priority than overlay on some devices.
+        // Wrapped in try-catch because background activity launch may be blocked.
+        handler?.postDelayed({
+            launchBlackOverlayActivity()
+        }, 300)
         
         // Notify MainActivity that timer finished - so UI refreshes automatically
         val finishIntent = Intent(ACTION_TIMER_FINISHED)
@@ -266,8 +283,11 @@ class TimerService : Service() {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val selectedMode = prefs.getInt(KEY_MODE, 0) // 0: standard battery screen, 1: instant pitch black, 2: glitch pattern
 
-        val layoutParamsFlags = (WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        // Flags optimized for Chinese OEM ROM compatibility.
+        // Removed FLAG_NOT_TOUCH_MODAL — it conflicts with fullscreen overlay priority
+        // on Xiaomi MIUI, Oppo ColorOS, Vivo FuntouchOS. Without it, the system treats
+        // the overlay as a "background popup" and blocks it until user interaction.
+        val layoutParamsFlags = (WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
                 or WindowManager.LayoutParams.FLAG_FULLSCREEN
                 or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
